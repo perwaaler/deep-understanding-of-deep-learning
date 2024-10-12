@@ -1,4 +1,5 @@
 RESET_COLOR = "\033[0m"
+
 COLOR_TO_ANSI_MAP = {  # All are in bold font
     "grey": "\033[1;30m",
     "grey_bold": "\033[1;30m",
@@ -6,9 +7,11 @@ COLOR_TO_ANSI_MAP = {  # All are in bold font
     "blue": "\033[1;94m",
     "orange": "\033[1;33m",
     "red": "\033[1;91m",
+    "magenta": "\033[1;95m",  # Added magenta
+    "teal": "\033[1;96m",  # Added teal (cyan)
+    "brown": "\033[1;33m",  # Added brown (same as orange, closest approximation)
     "reset": "\033[0m",
 }
-
 
 # %% PRINTING UTILITES
 
@@ -43,6 +46,18 @@ def green_print(text: str):
     """Prints text (warning) in console in a color close to orange (bold
     yellow)."""
     print(color_text(text, "green"))
+
+
+def blue_print(text: str):
+    """Prints text (warning) in console in a color close to orange (bold
+    yellow)."""
+    print(color_text(text, "blue"))
+
+
+def magenta_print(text: str):
+    """Prints text (warning) in console in a color close to orange (bold
+    yellow)."""
+    print(color_text(text, "magenta"))
 
 
 def red_print(text):

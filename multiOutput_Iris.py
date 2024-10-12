@@ -37,15 +37,15 @@ plt.show()
 # organize the data
 
 # convert from pandas dataframe to tensor
-data = torch.tensor(iris[iris.columns[0:4]].values).float()
+x_train = torch.tensor(iris[iris.columns[0:4]].values).float()
 
 # transform species to number
-labels = torch.zeros(len(data), dtype=torch.long)
+labels_train = torch.zeros(len(x_train), dtype=torch.long)
 # labels[iris.species=='setosa'] = 0 # don't need!
-labels[iris.species == "versicolor"] = 1
-labels[iris.species == "virginica"] = 2
+labels_train[iris.species == "versicolor"] = 1
+labels_train[iris.species == "virginica"] = 2
 
-labels
+labels_train
 
 # %% [markdown]
 # # Create the ANN model
@@ -80,10 +80,10 @@ ongoingAcc = []
 for epochi in range(numepochs):
 
     # forward pass
-    yHat = ANNiris(data)
+    yHat = ANNiris(x_train)
 
     # compute loss
-    loss = lossfun(yHat, labels)
+    loss = lossfun(yHat, labels_train)
     losses[epochi] = loss
 
     # backprop
@@ -92,17 +92,17 @@ for epochi in range(numepochs):
     optimizer.step()
 
     # compute accuracy
-    matches = torch.argmax(yHat, axis=1) == labels  # booleans (false/true)
+    matches = torch.argmax(yHat, axis=1) == labels_train  # booleans (false/true)
     matchesNumeric = matches.float()  # convert to numbers (0/1)
     accuracyPct = 100 * torch.mean(matchesNumeric)  # average and x100
     ongoingAcc.append(accuracyPct)  # add to list of accuracies
 
 
 # final forward pass
-predictions = ANNiris(data)
+predictions = ANNiris(x_train)
 
 predlabels = torch.argmax(predictions, axis=1)
-totalacc = 100 * torch.mean((predlabels == labels).float())
+totalacc = 100 * torch.mean((predlabels == labels_train).float())
 
 # %%
 torch.argmax(yHat, axis=1)
