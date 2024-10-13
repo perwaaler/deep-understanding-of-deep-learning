@@ -7,9 +7,10 @@ import matplotlib.pyplot as plt
 from IPython import display
 
 from utilities import green_print, orange_print, silent_print, magenta_print, blue_print
-from matplotlib_inline.backend_inline import set_matplotlib_formats
 
+from matplotlib_inline.backend_inline import set_matplotlib_formats
 set_matplotlib_formats("png", "svg")  # Will render plots as PNG and SVG
+
 # %%
 # import dataset (comes with seaborn)
 import seaborn as sns
