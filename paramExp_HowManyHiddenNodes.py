@@ -1,10 +1,3 @@
-# %% [markdown]
-# # COURSE: A deep understanding of deep learning
-# ## SECTION: ANNs
-# ### LECTURE: Multi-output ANN (iris dataset)
-# #### TEACHER: Mike X Cohen, sincxpress.com
-# ##### COURSE URL: udemy.com/course/dudl/?couponCode=202207
-
 # %%
 # import libraries
 import torch
@@ -14,9 +7,9 @@ import matplotlib.pyplot as plt
 from IPython import display
 
 from utilities import green_print, orange_print, silent_print, magenta_print, blue_print
+from matplotlib_inline.backend_inline import set_matplotlib_formats
 
-display.set_matplotlib_formats("svg")
-
+set_matplotlib_formats("png", "svg")  # Will render plots as PNG and SVG
 # %%
 # import dataset (comes with seaborn)
 import seaborn as sns
@@ -27,28 +20,34 @@ iris = sns.load_dataset("iris")
 iris.head()
 
 predictor_columns = iris.columns[:4].to_list()
-green_print(f"Predictors: {predictor_columns}")
+silent_print(f"Predictors: {predictor_columns}")
 # %%
 # some plots to show the data
 import seaborn as sns
 import numpy as np
 
-# sns.pairplot(iris, hue="species")
-# plt.show()
-green_print(f"N.o. samples: {len(iris)}")
+if False:
+    # Plot pairwise plots
+    sns.pairplot(iris, hue="species")
+    plt.show()
 
 n_test = int(len(iris) * 0.15)
 
-
-orange_print("Create Training and test set")
+orange_print("Split into training and test sets")
 np.random.seed(42)
 index_test = iris.sample(n=n_test).index
 index_train = iris.index.difference(index_test)
 
+# Remember to
 iris_test = iris.loc[index_test].reset_index(drop=True)
 iris_train = iris.loc[index_train].reset_index(drop=True)
+
 green_print(f"N training samples: {len(iris_train)}")
 green_print(f"N test samples: {len(iris_test)}")
+silent_print(
+    "Remember to not create new index column",
+    "when sampling using the 'drop' argument!",
+)
 
 # %%
 orange_print("Prepare the data")
@@ -72,59 +71,17 @@ green_print(f"N obs. C1: {(labels_train==0).sum().item()}")
 green_print(f"N obs. C2: {(labels_train==1).sum().item()}")
 green_print(f"N obs. C3: {(labels_train==2).sum().item()}")
 
-
-# %%
-# model architecture
+# %% Example using summary function
 ANNiris = nn.Sequential(
-    nn.Linear(4, 64),  # input layer
+    nn.Linear(4, 8),  # input layer
     nn.ReLU(),  # activation
-    nn.Linear(64, 64),  # hidden layer
+    nn.Linear(8, 6),  # hidden layer
     nn.ReLU(),  # activation
-    nn.Linear(64, 3),  # output layer
+    nn.Linear(6, 3),  # output layer
 )
+from torchsummary import summary
 
-# loss function
-lossfun = nn.CrossEntropyLoss()
-
-# optimizer
-optimizer = torch.optim.SGD(ANNiris.parameters(), lr=0.01)
-
-numepochs = 1000
-
-# initialize losses
-losses = torch.zeros(numepochs)
-ongoingAcc = []
-
-# loop over epochs
-for epochi in range(numepochs):
-
-    # forward pass
-    yHat = ANNiris(x_train)
-
-    # compute loss
-    loss = lossfun(yHat, labels_train)
-    losses[epochi] = loss
-
-    # backprop
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-
-    # compute accuracy
-    matches = torch.argmax(yHat, axis=1) == labels_train  # booleans (false/true)
-    matchesNumeric = matches.float()  # convert to numbers (0/1)
-    accuracyPct = 100 * torch.mean(matchesNumeric)  # average and x100
-    ongoingAcc.append(accuracyPct)  # add to list of accuracies
-
-
-# final forward pass
-predictions = ANNiris(x_train)
-
-predlabels = torch.argmax(predictions, axis=1)
-totalacc = 100 * torch.mean((predlabels == labels_train).float())
-plt.plot(losses.detach())
-
-# %%
+summary(ANNiris)
 
 
 def train_model(n_hidden, x_data, labels, learning_rate=0.01, n_epochs=400):
@@ -180,8 +137,9 @@ ANNiris, totalacc, losses = train_model(
     n_epochs=1000,
     learning_rate=0.01,
 )
+plt.figure(figsize=(3, 3))
 plt.plot(losses.detach())
-green_print(f"Train Accuracy test run: {totalacc:.3}")
+green_print(f"TEST RUN: Accuracy: {totalacc:.3}%")
 
 # %% Prepare for parametric experiment
 x_vals = np.arange(0, 100, 3)
