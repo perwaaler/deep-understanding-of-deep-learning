@@ -79,7 +79,7 @@ class CellGenerator:
 
                 # If the pixel is inside the circle, set it to black (0)
                 if dist_from_center <= radius:
-                    image[i, j] = 1
+                    image[i, j] = 1.0
 
         return image
 
@@ -88,13 +88,16 @@ image_size = 100
 
 skew_values = np.random.randn(3) * 0.2
 centers_inner = np.random.uniform(size=(3, 2))
+centers_outer = np.random.normal(centers_inner, scale=0.02)
+radiuses_inner = np.random.uniform(0.1, 0.15, size=(3, 1))
+radiuses_outer = np.random.uniform(radiuses_inner, radiuses_inner + 0.05)
 
 cell1 = CellGenerator(
     image_size=image_size,
-    center_inner=(0.15, 0.15),
-    center_outer=(0.15, 0.15),
-    radius_inner=0.15,
-    radius_outer=0.18,
+    center_inner=centers_inner[0],
+    center_outer=centers_outer[0],
+    radius_inner=radiuses_inner[0],
+    radius_outer=radiuses_outer[0],
     skew=skew_values[0],
 ).generate_cell()
 plt.imshow(cell1)
@@ -132,3 +135,29 @@ ax[1, 0].set_title(f"Cell3")
 
 ax[1, 1].imshow(cell_tissue, cmap="gray")
 ax[1, 1].set_title(f"Tissue")
+
+# %% GENERATE RANDOM CELLS
+image_size = 200
+n_cells = 5
+
+skew_values = np.random.randn(n_cells) * 0.2
+centers_inner = np.random.uniform(size=(n_cells, 2))
+centers_outer = np.random.normal(centers_inner, scale=0.001)
+radiuses_inner = np.random.uniform(0.03, 0.05, size=(n_cells, 1))
+radiuses_outer = np.random.uniform(radiuses_inner, radiuses_inner + 0.025)
+
+cells = []
+
+for i in range(n_cells):
+    cell = CellGenerator(
+        image_size=image_size,
+        center_inner=centers_inner[i],
+        center_outer=centers_outer[i],
+        radius_inner=radiuses_inner[i],
+        radius_outer=radiuses_outer[i],
+        skew=skew_values[i],
+    ).generate_cell()
+    cells.append(cell)
+
+tissue_rand_gen = np.array(cells).sum(axis=0)
+plt.imshow(tissue_rand_gen)
