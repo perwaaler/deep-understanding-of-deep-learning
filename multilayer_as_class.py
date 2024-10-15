@@ -79,34 +79,71 @@ model.test_model()
 
 
 class trainModel:
-    def __init__(self, theModel, epochs, learning_rate):
-        self.model = theModel
+    def __init__(self, model, epochs, learning_rate):
+        self.model = model
         self.epochs = epochs
         self.learning_rate = learning_rate
-        self.loss = nn.BCELoss()
+        self.loss_function = nn.BCELoss()
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=learning_rate)
 
+    def train_model(self, data, labels):
+        self.losses = torch.zeros(self.epochs)
 
-def createANNmodel(learningRate):
+        for epoch in range(self.epochs):
+            scores = self.model.forward(data)
+            loss = self.loss_function(scores, labels)
+            self.losses[epoch] = loss
 
-    # model architecture
-    ANNclassify = nn.Sequential(
-        nn.Linear(2, 16),  # input layer
-        nn.ReLU(),  # activation unit
-        nn.Linear(16, 1),  # hidden layer
-        nn.ReLU(),  # activation unit
-        nn.Linear(1, 1),  # output unit
-        nn.Sigmoid(),  # final activation unit
-    )
+            # backprop
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
 
-    # loss function
-    lossfun = nn.BCELoss()  # but better to use BCEWithLogitsLoss
+            labels_pred = labels_pred > 0           
+            
+            # Compute accuracy
+            with torch.no_grad(): # Disable gradient computation for efficiency
+                accuracy = 100 * torch.mean((labels_pred == labels).float())
+                accuracy.append(accuracy)
 
-    # optimizer
-    optimizer = torch.optim.SGD(ANNclassify.parameters(), lr=learningRate)
+        # Final forward pass for evaluation
+        with torch.no_grad():
+            predictions = self.model(x_data)
+            total_accuracy = self.calc_accuracy(predictions, labels)
 
-    # model output
-    return ANNclassify, lossfun, optimizer
+        return (
+            self.model,
+            total_accuracy,
+            self.losses,
+        )
+        
+        def test():
+            torch.rand()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+
+# def createANNmodel(learningRate):
+
+#     # model architecture
+#     ANNclassify = nn.Sequential(
+#         nn.Linear(2, 16),  # input layer
+#         nn.ReLU(),  # activation unit
+#         nn.Linear(16, 1),  # hidden layer
+#         nn.ReLU(),  # activation unit
+#         nn.Linear(1, 1),  # output unit
+#         nn.Sigmoid(),  # final activation unit
+#     )
+
+#     # loss function
+#     lossfun = nn.BCELoss()  # but better to use BCEWithLogitsLoss
+
+#     # optimizer
+#     optimizer = torch.optim.SGD(ANNclassify.parameters(), lr=learningRate)
+
+#     # model output
+#     return ANNclassify, lossfun, optimizer
 
 
 # %%
