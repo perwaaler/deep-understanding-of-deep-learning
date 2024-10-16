@@ -1,73 +1,49 @@
 # %%
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
+import torch.optim as optim
 import seaborn as sns
 from utilities import *
-
-# %%
-
-
-class ANNiris(nn.Module):
-    def __init__(self):
-        super(ANNiris, self).__init__()
-
-        # Define layers
-        self.input_layer = nn.Linear(4, 64)  # input layer
-        self.hidden_layer = nn.Linear(64, 64)  # hidden layer
-        self.output_layer = nn.Linear(64, 3)  # output layer
-
-        # Activation function
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        # Forward pass through the layers
-        x = self.relu(self.input_layer(x))  # Input layer + ReLU
-        x = self.relu(self.hidden_layer(x))  # Hidden layer + ReLU
-        x = self.output_layer(x)  # Output layer (no activation for CrossEntropyLoss)
-        return x
-
-
-model = ANNiris()
+import matplotlib.pyplot as plt
 
 
 # %% Setting up MODEL TRAINING
 
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import matplotlib.pyplot as plt
-
-
 # Define the model architecture
 class AnnIris(nn.Module):  # Class names in CamelCase
-    def __init__(self, n_hidden):
+    def __init__(self, n_hidden, batch_norm=True):
         super(AnnIris, self).__init__()
         self.input_layer = nn.Linear(4, n_hidden)
+        self.bn1 = nn.BatchNorm1d(n_hidden)
         self.hidden_layer = nn.Linear(n_hidden, n_hidden)
+        self.bn2 = nn.BatchNorm1d(n_hidden)
         self.output_layer = nn.Linear(n_hidden, 3)
         self.relu_activation = nn.ReLU()
+        self.batch_norm = batch_norm
 
     def forward(self, x):
-        x = self.relu_activation(self.input_layer(x))
-        x = self.relu_activation(self.hidden_layer(x))
-        x = self.output_layer(x)
+        x = self.input_layer(x)
+        x = self.bn1(x) if self.batch_norm else x
+        x = self.relu_activation(x)  # Activations layer 1
+
+        x = self.hidden_layer(x)
+        x = self.bn2(x) if self.batch_norm else x
+        x = self.hidden_layer(x)
+        x = self.relu_activation(x)  # Activations layer 2
+
+        x = self.output_layer(x)  # Activations output layer
+
         return x
 
 
-# Define the Trainer class
 class ModelTrainer:
-    def __init__(self, model, learning_rate=0.01, n_epochs=400):
-        self.model = model  # Model is passed in during initialization
+    def __init__(self, model, learning_rate=0.01, n_epochs=400, batch_size=64):
+        self.model = model
         self.learning_rate = learning_rate
+        self.batch_size = batch_size
         self.n_epochs = n_epochs
-
-        # Loss function and optimizer
         self.loss_function = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(self.model.parameters(), lr=self.learning_rate)
 
@@ -77,30 +53,38 @@ class ModelTrainer:
         return accuracy_pct
 
     def train_model(self, x_data, labels):
+        # Create a DataLoader to handle batches
+        dataset = TensorDataset(x_data, labels)
+        data_loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+
         self.losses = torch.zeros(self.n_epochs)
         ongoing_accuracy = []  # Made consistent with snake_case
 
         # Training loop
         for epoch_index in range(self.n_epochs):  # Made more descriptive
-            # Forward pass
             self.model.train()  # Some layers (like Dropout and BatchNorm) behave differently during training vs. evaluation.
-            # Predict: run data 'forward' through the layers
+            epoch_loss = 0
+
+            for batch_data, batch_labels in data_loader:
+                # Forward pass
+                # Predict: run data 'forward' through the layers
+                y_hat = self.model(batch_data)
+
+                # Compute loss
+                loss = self.loss_function(y_hat, batch_labels)
+                epoch_loss += loss.item()
+
+                # ** Backpropagation and optimization step **
+                self.optimizer.zero_grad()  # Reset gradients
+                loss.backward()  # Compute the gradient for the current loss
+                self.optimizer.step()  # Update model parameters based on the gradients
+
+            # Store average loss for this epoch
+            self.losses[epoch_index] = epoch_loss / len(data_loader)
             y_hat = self.model(x_data)
 
-            # Compute loss
-            loss = self.loss_function(y_hat, labels)
-            self.losses[epoch_index] = loss
-
-            # ** Backpropagation and optimization step **
-            # Reset gradients
-            self.optimizer.zero_grad()
-            # Compute the gradient for the current loss
-            loss.backward()
-            # Update model parameters based on the gradients
-            self.optimizer.step()
-
             # Compute accuracy
-            with torch.no_grad(): # Disable gradient computation for efficiency
+            with torch.no_grad():  # Disable gradient computation for efficiency
                 ongoing_accuracy.append(self.calc_accuracy(y_hat, labels))
 
         # Final forward pass for evaluation
@@ -141,8 +125,8 @@ def prepare_data_for_analysis(iris_df):
 x_data, y_data = prepare_data_for_analysis(iris_df=iris)
 
 # Example of using the class
-model = ANNiris(n_hidden=64)  # Model with custom architecture
-trainer = ModelTrainer(model, learning_rate=0.01, n_epochs=400)
+model = AnnIris(n_hidden=64, batch_norm=True)  # Model with custom architecture
+trainer = ModelTrainer(model, learning_rate=0.01, n_epochs=400, batch_size=2**7)
 
 # Assuming x_data and labels are your input data
 model, final_accuracy, loss_history = trainer.train_model(x_data, y_data)
