@@ -13,9 +13,9 @@ import matplotlib.pyplot as plt
 
 
 # Define the model architecture
-class AnnIris(nn.Module):  # Class names in CamelCase
+class IrisModel(nn.Module):  # Class names in CamelCase
     def __init__(self, n_hidden=64, batch_norm=True):
-        super(AnnIris, self).__init__()
+        super(IrisModel, self).__init__()
         # Model Architecture
         self.input_layer = nn.Linear(4, n_hidden)
         self.bn1 = nn.BatchNorm1d(n_hidden)
@@ -53,7 +53,7 @@ class AnnIris(nn.Module):  # Class names in CamelCase
         return
 
 
-model = AnnIris()
+model = IrisModel()
 
 
 class ModelTrainer:
@@ -65,19 +65,31 @@ class ModelTrainer:
         self.loss_function = F.cross_entropy
         self.optimizer = optim.SGD(self.model.parameters(), lr=self.learning_rate)
 
+        self.train_accuracy = []
+        self.valid_accuracy = []
+
     def calc_accuracy(self, scores, labels):
         matches = torch.argmax(scores, axis=1) == labels
         accuracy_pct = 100 * torch.mean(matches.float())
         return accuracy_pct
 
-    def train_model(self, x_data, labels, epochs=None):
+    def train_model(
+        self,
+        x_train,
+        labels_train,
+        x_valid=None,
+        labels_valid=None,
+        epochs=None,
+    ):
         epochs = epochs if epochs else self.n_epochs
+
         # Create a DataLoader to handle batches
-        dataset = TensorDataset(x_data, labels)
+        dataset = TensorDataset(x_train, labels_train)
         data_loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
         self.losses = torch.zeros(epochs)
-        ongoing_accuracy = []  # Made consistent with snake_case
+        training_accuracy = []
+        valid_accuracy = []
 
         # Training loop
         for epoch_index in range(epochs):  # Made more descriptive
@@ -100,22 +112,26 @@ class ModelTrainer:
 
             # Store average loss for this epoch
             self.losses[epoch_index] = epoch_loss / len(data_loader)
-            y_hat = self.model(x_data)
+            y_hat = self.model(x_train)
 
             # Compute accuracy
             with torch.no_grad():  # Disable gradient computation for efficiency
-                ongoing_accuracy.append(self.calc_accuracy(y_hat, labels))
+                training_accuracy.append(self.calc_accuracy(y_hat, labels_train).item())
+                if x_valid is not None:
+                    valid_accuracy.append(
+                        self.calc_accuracy(self.model(x_valid), labels_valid).item()
+                    )
 
-        # Final forward pass for evaluation
-        with torch.no_grad():
-            predictions = self.model(x_data)
-            total_accuracy = self.calc_accuracy(predictions, labels)
+        self.history = {
+            "train_loss": self.losses,
+            "train_accuracy": training_accuracy,
+            "valid_accuracy": valid_accuracy,
+        }
 
-        return (
-            self.model,
-            total_accuracy,
-            self.losses,
-        )
+        return self.model
+
+    def predict(self, x):
+        return self.model(x)
 
     def simulate_training_data(self, n_samples=5, sigma_e=0.1):
         """Simulates a linear model with X * W = Y (normal random values)."""
@@ -132,20 +148,19 @@ class ModelTrainer:
     def test_training(self, n_samples=5, epochs=3, sigma_e=0.1):
         """Runs a training test run with simulated data."""
         orange_print("Test run with simulated data")
-        data, labels = self.simulate_training_data(n_samples)
+        data, labels = self.simulate_training_data(n_samples, sigma_e=sigma_e)
         green_print(
             f"First 3 test inputs:",
             f"{data[:3, :]}",
             f"First 3 test output: {labels[:3]}",
         )
-
-        _, acc, losses = self.train_model(data, labels, epochs)
+        _ = self.train_model(x_train=data, labels_train=labels, epochs=epochs)
         blue_print(
-            f"Test Accuracy: {acc:.3}%",
-            f"First 3 Test losses {losses.detach()[:3]} ...",
+            f"Accuracy on Simulated Data: {self.history['train_accuracy']}%",
+            f"First 3 Test losses {self.losses.detach()[:3]} ...",
         )
         ax = self.plot_losses()
-        ax.set_title("Losses test training")
+        ax.set_title("Losses Simulated Data")
 
     def plot_losses(self):
         fig, ax = plt.subplots(figsize=(3, 3))
@@ -156,15 +171,28 @@ class ModelTrainer:
         ax.grid()
         return ax
 
+    def plot_progress(self):
+        fig, ax = plt.subplots(2, 1, figsize=(4, 3))
+        ax[0].plot(self.losses.detach())
+        ax[0].set_title("Training Loss over Epochs")
+        ax[0].set_xlabel("Epochs")
+        ax[0].set_ylabel("Loss")
+        ax[0].grid()
+
+        ax[1].plot(self.valid_accuracy)
+        ax[1].plot(self.train_accuracy)
+        ax[1].set_title("Accuracy")
+        ax[1].legend(["Training", "Validation"])
+        ax[1].set_xlabel("Epochs")
+
+        return ax
+
 
 torch.randn(10, 10)
-ANNmodel = AnnIris(n_hidden=3)
-# ANNmodel.input_layer.in_features
-# ANNmodel.output_layer.out_features
-
+ANNmodel = IrisModel()
 
 modelTrainer = ModelTrainer(ANNmodel, learning_rate=0.1)
-modelTrainer.test_training(n_samples=500, epochs=500, sigma_e=0.3)
+modelTrainer.test_training(n_samples=400, epochs=400, sigma_e=0.3)
 
 
 # n = 5
@@ -180,29 +208,29 @@ modelTrainer.test_training(n_samples=500, epochs=500, sigma_e=0.3)
 # magenta_print(Y)
 
 # %% Train on Iris Dataset
-iris = sns.load_dataset("iris")
-predictor_columns = iris.columns[:4].to_list()
+# iris = sns.load_dataset("iris")
+# predictor_columns = iris.columns[:4].to_list()
 
 
-def prepare_data_for_analysis(iris_df):
-    data = torch.tensor(iris_df[predictor_columns].values).float()
-    # transform species to number
-    labels = torch.zeros(len(data), dtype=torch.long)
-    labels[iris_df.species == "setosa"] = 0
-    labels[iris_df.species == "versicolor"] = 1
-    labels[iris_df.species == "virginica"] = 2
-    return data, labels
+# def prepare_data_for_analysis(iris_df):
+#     data = torch.tensor(iris_df[predictor_columns].values).float()
+#     # transform species to number
+#     labels = torch.zeros(len(data), dtype=torch.long)
+#     labels[iris_df.species == "setosa"] = 0
+#     labels[iris_df.species == "versicolor"] = 1
+#     labels[iris_df.species == "virginica"] = 2
+#     return data, labels
 
 
-x_data, y_data = prepare_data_for_analysis(iris_df=iris)
+# x_data, y_data = prepare_data_for_analysis(iris_df=iris)
 
-# Example of using the class
-model = AnnIris(n_hidden=64, batch_norm=True)  # Model with custom architecture
-trainer = ModelTrainer(model, learning_rate=0.01, n_epochs=400, batch_size=2**7)
+# # Example of using the class
+# model = AnnIris(n_hidden=64, batch_norm=True)  # Model with custom architecture
+# trainer = ModelTrainer(model, learning_rate=0.01, n_epochs=400, batch_size=2**7)
 
-# Assuming x_data and labels are your input data
-model, final_accuracy, loss_history = trainer.train_model(x_data, y_data)
+# # Assuming x_data and labels are your input data
+# model, final_accuracy, loss_history = trainer.train_model(x_data, y_data)
 
 
-# Plotting the losses after training
-trainer.plot_losses()
+# # Plotting the losses after training
+# trainer.plot_losses()
