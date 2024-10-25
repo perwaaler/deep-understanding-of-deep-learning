@@ -1,2 +1,19 @@
 {
+    "files.exclude": {
+        ".gitignore": true,
+        ".vscode": true,
+        "**/__pycache__": true,
+        "**/.git": true,
+        "**/.ipynb_checkpoints": true,
+        ".dvc": false,
+        ".git": false,
+        ".dvcignore": true,
+        "results": false,
+        "**/*.dta": true,
+        "**/*.ini": true,
+        "**/*.python-version": true,
+        "**/*.*egg*": false,
+        ".venv": true,
+        "**/flagged": true
+    },
 }

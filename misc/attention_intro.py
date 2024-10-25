@@ -1,9 +1,8 @@
-"""
-This script simulates two modalities of input data and applies a simple attention-based 
-neural network to predict output labels. The model is trained on mini-batches using an 
-Adam optimizer and Mean Squared Error loss. The goal is to test how attention mechanisms 
-work in a multimodal learning setup and evaluate the model's performance by tracking the 
-loss and correlation between predicted and true labels.
+"""I implement a transformer with self-attention, and use that model (with
+randomly generated weights) to simulate data which I then train on as a proof of
+concept.
+
+keywords: self-attention, transformers
 """
 
 # %%
@@ -86,6 +85,8 @@ with torch.no_grad():  # No gradient tracking for this operation
 X1_train, X1_test, X2_train, X2_test, Y_train, Y_test = train_test_split(
     X1, X2, Y, test_size=0.2
 )
+
+# %% Train the model
 
 
 class SimpleAttentionTrainer:
