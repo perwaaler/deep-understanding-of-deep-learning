@@ -106,7 +106,7 @@ class Attention(nn.Module):
         k = self.k(x)
         v = self.v(x)
         # Input x, x, x because we are using self-attention (no other modality is used to guide attention)
-        attn_output, attn_output_weights = self.att(x, x, x)
+        attn_output, attn_output_weights = self.att(q, k, v)
         return attn_output
 
 

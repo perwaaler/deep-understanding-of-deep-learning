@@ -81,3 +81,10 @@ def pink_print(*args):
     """Prints each argument on a new line in red."""
     print(*color_text(*args, c="pink"))
 
+
+def calc_acc(*model_inputs, labels, model):
+    """Calculates Accuracy for a torch model"""
+    predictions = (model(*model_inputs) >= 0.5).float()
+    return (predictions == labels).float().mean()
+
+

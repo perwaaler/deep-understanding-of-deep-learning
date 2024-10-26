@@ -1,3 +1,7 @@
+"""Here I implement the code from Gated Multimodal Units for Information Fusion.
+
+keywords: Gated units, attention, Transformer, heatmap"""
+
 # %%
 import path_setup
 import numpy as np
@@ -34,9 +38,50 @@ class GatedAttention(nn.Module):
         return h
 
 
-class BenchmarkMLP(nn.Module):
+class SelfAttention2DPoints(nn.Module):
+    """Simple implementation of the transformer architecture where"""
+
+    def __init__(self, embed_dim=1, n_heads=1, dropout=0.0, batch_first=True):
+        super().__init__()
+
+        self.n_heads = n_heads
+        self.att = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=n_heads,
+            dropout=dropout,
+            batch_first=batch_first,
+        )
+        self.embed_dim = embed_dim
+        self.seq_length = 2
+
+        self.fc0 = nn.Linear(self.seq_length, self.seq_length)
+        self.fc1 = nn.Linear(self.seq_length, 1)
+
+    def forward(self, x1, x2):
+        # ** Prepare Data **
+        x = torch.cat([x1, x2], dim=-1)
+        # Separate each sequence into its own coordinate
+        # Batch size, sequence length, length of embeddings making up each sequence
+        x = x.reshape(-1, self.seq_length, self.embed_dim)
+
+        # Compute attention
+        x, attn_weights = self.att(x, x, x)
+
+        # Extract weights
+        attn_weights = [[w[0, 1], w[1, 1]] for w in attn_weights]
+        self.attn_weights = torch.tensor(attn_weights)
+
+        x = x.reshape(-1, 2)  # Reshape back to N by 2 shape
+
+        # Finally, reduce to prediction and apply softmax
+        output = F.sigmoid(self.fc1(x))
+
+        return output
+
+
+class FeedForward(nn.Module):
     def __init__(self):
-        super(BenchmarkMLP, self).__init__()
+        super(FeedForward, self).__init__()
         # Matrices used to map inputs to feature representations in shared space
         self.layers = nn.ModuleDict(
             {
@@ -56,19 +101,25 @@ def n_params(model):
     return sum(len(p) for p in model.parameters())
 
 
-gatedModel = GatedAttention()
+GatedModel = GatedAttention()
 
-xv = torch.tensor([[1.0], [2.0], [3.0]])  # Example batch of size 5 with 1 feature
-xt = torch.tensor([[2.0], [1.5], [1.0]])  # Example batch of size 5 with 1 feature
+x1 = torch.tensor([[1.0], [2.0], [3.0]])
+x2 = torch.tensor([[2.0], [1.5], [1.0]])
+red_print("Concatted data:\n", torch.concat([x1, x2], dim=1))
 
-benchMarkModel = BenchmarkMLP()
-benchMarkModel(xv, xt)
+FeedForwardModel = FeedForward()
+FeedForwardModel(x1, x2)
 
-blue_print(f"N.o. params Benchmark: {n_params(benchMarkModel)}")
-green_print(f"N.o. params GatedModel: {n_params(gatedModel)}")
+SelfAttentionModel = SelfAttention2DPoints()
+SelfAttentionModel.forward(x1, x2)
+
+blue_print(f"N.o. params Benchmark: {n_params(FeedForwardModel)}")
+blue_print(f"N.o. params SelfAttention: {n_params(SelfAttentionModel)}")
+green_print(f"N.o. params GatedModel: {n_params(GatedModel)}")
+
 # %% Simulate data
-"""Here I simulate the same data as in the paper: 'GATED MULTIMODAL UNITS FOR
-INFORMATION FUSION'"""
+"""Here I simulate the same data as in the paper: 'Gated Multimodal Units for
+Information Fusion'"""
 
 
 def simulate_data(n_samples=200, plot_data=False):
@@ -106,22 +157,12 @@ def simulate_data(n_samples=200, plot_data=False):
     return x1, x2, C
 
 
-# %% Train model
-from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split
+# %% Define Model Trainer Class
 
-x1, x2, C = simulate_data(n_samples=150)
 
-# Convert data to tensor format
-X1 = torch.tensor(x1).unsqueeze(1).float()
-X2 = torch.tensor(x2).unsqueeze(1).float()
-labels = torch.tensor(C).unsqueeze(1).float()
-
-X1_train, X1_test, X2_train, X2_test, labels_train, labels_test = train_test_split(
-    X1, X2, labels, test_size=0.5
-)
-lime_print(f"N.o. Training Obs: {len(X1_train)}")
-lime_print(f"N.o. Test Obs: {len(X1_test)}")
+def calc_acc(X1, X2, labels, model):
+    predictions = (model(X1, X2) >= 0.5).float()
+    return (predictions == labels).float().mean()
 
 
 class ModelTrainer:
@@ -131,7 +172,7 @@ class ModelTrainer:
         learning_rate=0.05,
         num_epochs=200,
         batch_size=32,
-        n_max_consecutive_failures=4,
+        n_max_consecutive_failures=10,
     ):
         self.model = model
         self.batch_size = batch_size
@@ -142,7 +183,7 @@ class ModelTrainer:
         self.losses = []
         self.n_max_consecutive_failures = n_max_consecutive_failures
 
-    def train_model(self, X1, X2, labels):
+    def train_model(self, X1, X2, labels, plot_losses=False):
         # Prepare Data for Training Loop
         train_dataset = TensorDataset(X1, X2, labels)
         dataset_loader = DataLoader(train_dataset, batch_size=self.batch_size)
@@ -182,40 +223,88 @@ class ModelTrainer:
                 )
                 break
 
+        if plot_losses:
+            plt.plot(self.losses)
+            plt.xlabel("epochs")
+            plt.show()
 
-def calc_acc(X1, X2, labels, model):
-    predictions = (model(X1, X2) >= 0.5).float()
-    return (predictions == labels).float().mean()
 
+# ** Prepare Data
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.model_selection import train_test_split
 
-trainingGatedModel = ModelTrainer(gatedModel)
-trainingBenchmarkModel = ModelTrainer(benchMarkModel)
-trainingGatedModel.train_model(X1_train, X2_train, labels_train)
-trainingBenchmarkModel.train_model(X1_train, X2_train, labels_train)
+x1, x2, C = simulate_data(n_samples=300)
 
-orange_print("TEST ACCURACY")
-blue_print(
-    f"Benchmark: {calc_acc(X1_test, X2_test, labels_test, trainingBenchmarkModel.model):.3}"
+# Convert data to tensor format
+X1 = torch.tensor(x1).unsqueeze(1).float()
+X2 = torch.tensor(x2).unsqueeze(1).float()
+labels = torch.tensor(C).unsqueeze(1).float()
+
+X1_train, X1_test, X2_train, X2_test, labels_train, labels_test = train_test_split(
+    X1, X2, labels, test_size=0.3
 )
-green_print(
-    f"GatedModel: {calc_acc(X1_test, X2_test, labels_test, trainingGatedModel.model):.3}"
-)
+lime_print(f"N.o. Training Obs: {len(X1_train)}")
+lime_print(f"N.o. Test Obs: {len(X1_test)}")
 
-fig, ax = plt.subplots(1, 2, figsize=(5, 4))
-ax[0].plot(trainingBenchmarkModel.losses)
-ax[0].set_title("Benchmark Loss")
+if False:
+    model = ModelTrainer(
+        SelfAttention2DPoints(),
+        n_max_consecutive_failures=20,
+        num_epochs=50,
+        learning_rate=0.01,
+    )
+    model.train_model(X1_train, X2_train, labels_train, plot_losses=True)
+    green_print(calc_acc(X1_test, X2_test, labels_test, model.model))
+
+# %% Training
+GatedModel = GatedAttention()
+SelfAttentionModel = SelfAttention2DPoints()
+FeedForwardModel = FeedForward()
+
+GatedModelTrainer = ModelTrainer(GatedModel)
+FeedForwardTrainer = ModelTrainer(SelfAttentionModel)
+SelfAttentionTrainer = ModelTrainer(FeedForwardModel)
+
+# Train models
+GatedModelTrainer.train_model(X1_train, X2_train, labels_train)
+FeedForwardTrainer.train_model(X1_train, X2_train, labels_train)
+SelfAttentionTrainer.train_model(X1_train, X2_train, labels_train)
+
+acc_Gated = calc_acc(X1_test, X2_test, labels_test, GatedModelTrainer.model)
+acc_SelfAttention = calc_acc(X1_test, X2_test, labels_test, SelfAttentionTrainer.model)
+acc_FeedForward = calc_acc(X1_test, X2_test, labels_test, FeedForwardTrainer.model)
+
+# Print losses
+fig, ax = plt.subplots(1, 3)
+fig.suptitle("Loss")
+
+ax[0].plot(GatedModelTrainer.losses)
+ax[0].set_title("GatedModel")
 ax[0].set_xlabel("Epoch")
-ax[1].plot(trainingGatedModel.losses)
-ax[1].set_title("GatedModel Loss")
+ax[0].set_ylim([0, max(GatedModelTrainer.losses)])
+
+ax[1].plot(SelfAttentionTrainer.losses)
+ax[1].set_title("SelfAttention")
 ax[1].set_xlabel("Epoch")
+ax[1].set_ylim([0, max(SelfAttentionTrainer.losses)])
+
+ax[2].plot(FeedForwardTrainer.losses)
+ax[2].set_title("FeedForward")
+ax[2].set_xlabel("Epoch")
+ax[2].set_ylim([0, max(FeedForwardTrainer.losses)])
+plt.pause(0.1)
 
 
-# %% Visualize predictions in heatmap
+orange_print("** TEST ACCURACY **")
+green_print(f"GatedModel: {acc_Gated:.3}")
+blue_print(f"AttentionModel: {acc_SelfAttention:.3}")
+teal_print(f"FeedForward: {acc_FeedForward:.3}")
+
+# %% Visualize predictions in heat map
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# Assuming `model` is your trained model
 # Define the grid range
 x1_range = np.linspace(-1, 3, 100)  # 100 points from 0 to 2
 x2_range = np.linspace(-1, 3, 100)  # 100 points from 0 to 2
@@ -231,35 +320,63 @@ X2_tensor = torch.tensor(X2_flat).float().unsqueeze(1)  # Shape: (N, 1)
 
 # Get predictions from the model
 with torch.no_grad():  # Disable gradient calculation
-    gatedModel.eval()  # Set model to evaluation mode
-    predictions = gatedModel(
-        X1_tensor, X2_tensor
-    )  # Model outputs logits or probabilities
+    GatedModel.eval()  # Set model to evaluation mode
+    predictionsGated = GatedModel(X1_tensor, X2_tensor)
+    predictionsSelfAtt = SelfAttentionModel(X1_tensor, X2_tensor)
+    predictionsFeedForward = FeedForwardModel(X1_tensor, X2_tensor)
 
 # Reshape predictions to match the grid shape
-predictions = predictions.numpy().reshape(X1_grid.shape)  # Reshape to (100, 100)
+predictionsGated = predictionsGated.numpy().reshape(X1_grid.shape)
+predictionsSelfAtt = predictionsSelfAtt.numpy().reshape(X1_grid.shape)
+predictionsFeedForward = predictionsFeedForward.numpy().reshape(X1_grid.shape)
 
-# Plotting the heatmap
-plt.figure(figsize=(8, 6))
-plt.imshow(
-    predictions, extent=(-1, 3, -1, 3), origin="lower", cmap="viridis", alpha=0.8
+# Gated Attention
+fig, ax = plt.subplots(1, 3, figsize=(20, 5))
+cax = ax[0].imshow(
+    predictionsGated, extent=(-1, 3, -1, 3), origin="lower", cmap="viridis", alpha=0.8
 )
-plt.colorbar(label="Probability")
-plt.title("Model Predictions Heatmap")
-plt.xlabel("X1")
-plt.ylabel("X2")
-plt.scatter(
-    X1_tensor.numpy(), X2_tensor.numpy(), s=1, color="white"
-)  # Optional: Overlay the input points
-plt.grid(False)
+ax[0].set_title("Gated Model")
+ax[0].set_xlabel("X1")
+ax[0].set_ylabel("X2")
+ax[0].grid(True)
+# Ground Truth
+ax[0].plot(x1[C == 0], x2[C == 0], "b.", label="Class 0 (C=0)")
+ax[0].plot(x1[C == 1], x2[C == 1], "r.", label="Class 1 (C=1)")
+ax[0].legend()
 
-plt.plot(x1[C == 1], x2[C == 1], "ro", label="Class 1 (C=1)")
-plt.plot(x1[C == 0], x2[C == 0], "bo", label="Class 0 (C=0)")
-plt.legend()
-plt.show()
+# Self Attention Plot
+cax = ax[1].imshow(
+    predictionsSelfAtt, extent=(-1, 3, -1, 3), origin="lower", cmap="viridis", alpha=0.8
+)
+ax[1].set_title("Self Attention")
+ax[1].set_xlabel("X1")
+ax[1].set_ylabel("X2")
+ax[1].grid(True)
+# Ground Truth
+ax[1].plot(x1[C == 0], x2[C == 0], "b.", label="Class 0 (C=0)")
+ax[1].plot(x1[C == 1], x2[C == 1], "r.", label="Class 1 (C=1)")
+
+cax = ax[2].imshow(
+    predictionsFeedForward,
+    extent=(-1, 3, -1, 3),
+    origin="lower",
+    cmap="viridis",
+    alpha=0.8,
+)
+ax[2].set_title("FeedForward")
+ax[2].set_xlabel("X1")
+ax[2].set_ylabel("X2")
+ax[2].grid(True)
+# Ground Truth
+ax[2].plot(x1[C == 0], x2[C == 0], "b.", label="Class 0 (C=0)")
+ax[2].plot(x1[C == 1], x2[C == 1], "r.", label="Class 1 (C=1)")
+
+fig.colorbar(
+    cax, ax=ax, orientation="vertical", label="Probability", fraction=0.05, pad=0.05
+)
 
 
-# %% Compare models over multiple training sessions
+# %% Compare Gated and FeedForward over multiple training sessions
 n_exp = 50
 accuracies = {"benchModel": np.zeros(n_exp), "gatedModel": np.zeros(n_exp)}
 n_samples = 200
@@ -275,14 +392,14 @@ for i in range(n_exp):
         X1, X2, labels, test_size=50
     )
 
-    trainingBenchmarkModel = ModelTrainer(benchMarkModel)
-    trainingGatedModel = ModelTrainer(gatedModel)
+    FeedForwardTrainer = ModelTrainer(FeedForwardModel)
+    GatedModelTrainer = ModelTrainer(GatedModel)
 
-    trainingBenchmarkModel.train_model(X1_train, X2_train, labels_train)
-    trainingGatedModel.train_model(X1_train, X2_train, labels_train)
+    FeedForwardTrainer.train_model(X1_train, X2_train, labels_train)
+    GatedModelTrainer.train_model(X1_train, X2_train, labels_train)
 
-    acc_bench = calc_acc(X1_test, X2_test, labels_test, trainingBenchmarkModel.model)
-    acc_gated = calc_acc(X1_test, X2_test, labels_test, trainingGatedModel.model)
+    acc_bench = calc_acc(X1_test, X2_test, labels_test, FeedForwardTrainer.model)
+    acc_gated = calc_acc(X1_test, X2_test, labels_test, GatedModelTrainer.model)
 
     accuracies["benchModel"][i] = acc_bench
     accuracies["gatedModel"][i] = acc_gated
