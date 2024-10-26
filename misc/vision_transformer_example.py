@@ -21,6 +21,9 @@ from random import random
 from torchvision.transforms import Resize, ToTensor
 from torchvision.transforms.functional import to_pil_image
 from utilities import *
+from torch import nn
+from einops.layers.torch import Rearrange
+from torch import Tensor
 
 # %% Image Patching
 
@@ -58,9 +61,6 @@ dataset = OxfordIIITPet(root="../data/", download=True, transforms=Compose(to_te
 show_images(dataset)
 
 # %% Patch Images
-from torch import nn
-from einops.layers.torch import Rearrange
-from torch import Tensor
 
 
 class PatchEmbedding(nn.Module):
@@ -97,16 +97,10 @@ class Attention(nn.Module):
         self.att = torch.nn.MultiheadAttention(
             embed_dim=dim, num_heads=n_heads, dropout=dropout
         )
-        self.q = torch.nn.Linear(dim, dim)
-        self.k = torch.nn.Linear(dim, dim)
-        self.v = torch.nn.Linear(dim, dim)
 
     def forward(self, x):
-        q = self.q(x)
-        k = self.k(x)
-        v = self.v(x)
         # Input x, x, x because we are using self-attention (no other modality is used to guide attention)
-        attn_output, attn_output_weights = self.att(q, k, v)
+        attn_output, attn_output_weights = self.att(x, x, x)
         return attn_output
 
 

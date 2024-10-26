@@ -13,6 +13,8 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from utilities import *
 import matplotlib.pyplot as plt
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.model_selection import train_test_split
 
 
 class GatedAttention(nn.Module):
@@ -27,12 +29,14 @@ class GatedAttention(nn.Module):
         self.Wt = nn.Linear(len_xt, h_dim)
         # Matrix used to map concatenated vector to weight z
         self.Wz = nn.Linear(width_Wz, h_dim)
+        self.bn1 = nn.BatchNorm1d(num_features=2)
 
     def forward(self, xv, xt):
         hv = F.tanh(self.Wv(xv))
         ht = F.tanh(self.Wt(xt))
-        x_concatenated = torch.cat((xv, xt), dim=1)
-        z = F.sigmoid(self.Wz(x_concatenated))
+        x = torch.cat((xv, xt), dim=-1)
+        x = self.bn1(x)
+        z = F.sigmoid(self.Wz(x))
         h = hv * z + ht * (1 - z)
         h = F.sigmoid(h)
         return h
@@ -54,16 +58,20 @@ class SelfAttention2DPoints(nn.Module):
         self.embed_dim = embed_dim
         self.seq_length = 2
 
+        # Batch normalization
+        self.bn1 = nn.BatchNorm1d(num_features=2)
+        self.bn2 = nn.BatchNorm1d(num_features=2)
+        # Fully Connected layers
         self.fc0 = nn.Linear(self.seq_length, self.seq_length)
         self.fc1 = nn.Linear(self.seq_length, 1)
 
     def forward(self, x1, x2):
         # ** Prepare Data **
         x = torch.cat([x1, x2], dim=-1)
+        x = self.bn1(x)
         # Separate each sequence into its own coordinate
         # Batch size, sequence length, length of embeddings making up each sequence
         x = x.reshape(-1, self.seq_length, self.embed_dim)
-
         # Compute attention
         x, attn_weights = self.att(x, x, x)
 
@@ -72,7 +80,7 @@ class SelfAttention2DPoints(nn.Module):
         self.attn_weights = torch.tensor(attn_weights)
 
         x = x.reshape(-1, 2)  # Reshape back to N by 2 shape
-
+        x = self.bn2(x)
         # Finally, reduce to prediction and apply softmax
         output = F.sigmoid(self.fc1(x))
 
@@ -89,12 +97,14 @@ class FeedForward(nn.Module):
                 "fc2": nn.Linear(2, 1),
             }
         )
+        self.bn1 = nn.BatchNorm1d(num_features=2)
 
     def forward(self, xv, xt):
-        X = torch.concat((xv, xt), dim=1)
+        x = torch.concat((xv, xt), dim=-1)
+        x = self.bn1(x)
         for layer in self.layers.values():
-            X = F.sigmoid(layer(X))
-        return X
+            x = F.sigmoid(layer(x))
+        return x
 
 
 def n_params(model):
@@ -117,7 +127,7 @@ blue_print(f"N.o. params Benchmark: {n_params(FeedForwardModel)}")
 blue_print(f"N.o. params SelfAttention: {n_params(SelfAttentionModel)}")
 green_print(f"N.o. params GatedModel: {n_params(GatedModel)}")
 
-# %% Simulate data
+# %% Function for simulating data
 """Here I simulate the same data as in the paper: 'Gated Multimodal Units for
 Information Fusion'"""
 
@@ -160,9 +170,53 @@ def simulate_data(n_samples=200, plot_data=False):
 # %% Define Model Trainer Class
 
 
+def print_dict(d, c=None, header=None, n_digits=3, indent_values=True):
+    """Function that prints the values in a dictionary"""
+    if c is None:
+        print_func = print
+    else:
+        print_func = lambda x: eval(f"{c}_print")(x)
+    indent = ""
+    if indent_values:
+        indent = "  "
+    if header:
+        print_func(header)
+    for key, value in d.items():
+        if isinstance(value, int) or isinstance(value, str):
+            print_func(f"{indent}{key}: {value}")
+        else:
+            print_func(f"{indent}{key}: {value:.{n_digits}}")
+
+
 def calc_acc(X1, X2, labels, model):
+    model.eval()
     predictions = (model(X1, X2) >= 0.5).float()
-    return (predictions == labels).float().mean()
+    matches = predictions == labels
+    return (matches).float().mean()
+
+
+def calc_sn(X1, X2, labels, model):
+    model.eval()
+    positive = (labels == 1).flatten()
+    predictions = (model(X1[positive], X2[positive]) >= 0.5).float()
+    matches = predictions == labels[positive]
+    return (matches).float().mean()
+
+
+def calc_sp(X1, X2, labels, model):
+    model.eval()
+    positive = (labels == 0).flatten()
+    predictions = (model(X1[positive], X2[positive]) >= 0.5).float()
+    matches = predictions == labels[positive]
+    return (matches).float().mean()
+
+
+def calc_acc_sn_sp(X1, X2, labels, model) -> list:
+    return {
+        "acc": calc_acc(X1, X2, labels, model),
+        "sn": calc_sn(X1, X2, labels, model),
+        "sp": calc_sp(X1, X2, labels, model),
+    }
 
 
 class ModelTrainer:
@@ -229,11 +283,8 @@ class ModelTrainer:
             plt.show()
 
 
-# ** Prepare Data
-from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split
-
-x1, x2, C = simulate_data(n_samples=300)
+# %% ** Prepare Data
+x1, x2, C = simulate_data(n_samples=100)
 
 # Convert data to tensor format
 X1 = torch.tensor(x1).unsqueeze(1).float()
@@ -241,7 +292,7 @@ X2 = torch.tensor(x2).unsqueeze(1).float()
 labels = torch.tensor(C).unsqueeze(1).float()
 
 X1_train, X1_test, X2_train, X2_test, labels_train, labels_test = train_test_split(
-    X1, X2, labels, test_size=0.3
+    X1, X2, labels, test_size=0.25
 )
 lime_print(f"N.o. Training Obs: {len(X1_train)}")
 lime_print(f"N.o. Test Obs: {len(X1_test)}")
@@ -256,7 +307,7 @@ if False:
     model.train_model(X1_train, X2_train, labels_train, plot_losses=True)
     green_print(calc_acc(X1_test, X2_test, labels_test, model.model))
 
-# %% Training
+# ** Training **
 GatedModel = GatedAttention()
 SelfAttentionModel = SelfAttention2DPoints()
 FeedForwardModel = FeedForward()
@@ -267,40 +318,55 @@ SelfAttentionTrainer = ModelTrainer(FeedForwardModel)
 
 # Train models
 GatedModelTrainer.train_model(X1_train, X2_train, labels_train)
-FeedForwardTrainer.train_model(X1_train, X2_train, labels_train)
 SelfAttentionTrainer.train_model(X1_train, X2_train, labels_train)
+FeedForwardTrainer.train_model(X1_train, X2_train, labels_train)
 
-acc_Gated = calc_acc(X1_test, X2_test, labels_test, GatedModelTrainer.model)
-acc_SelfAttention = calc_acc(X1_test, X2_test, labels_test, SelfAttentionTrainer.model)
-acc_FeedForward = calc_acc(X1_test, X2_test, labels_test, FeedForwardTrainer.model)
+acc_Gated = calc_acc_sn_sp(X1_test, X2_test, labels_test, GatedModelTrainer.model)
+acc_SelfAttention = calc_acc_sn_sp(
+    X1_test, X2_test, labels_test, SelfAttentionTrainer.model
+)
+acc_FeedForward = calc_acc_sn_sp(
+    X1_test, X2_test, labels_test, FeedForwardTrainer.model
+)
+calc_acc_sn_sp(X1_test, X2_test, labels_test, FeedForwardTrainer.model)
+# positive = (labels_test == 0).flatten()
+# predictions = (
+#     SelfAttentionTrainer.model(X1_test[positive], X2_test[positive]) >= 0.5
+# ).float()
+# matches = predictions == labels_test[positive]
+# green_print(matches.float().mean())
 
-# Print losses
-fig, ax = plt.subplots(1, 3)
-fig.suptitle("Loss")
+# Plot losses
+plot_losses = True
+if plot_losses:
+    fig, ax = plt.subplots(1, 3, figsize=(6, 2))
+    fig.suptitle("Loss")
 
-ax[0].plot(GatedModelTrainer.losses)
-ax[0].set_title("GatedModel")
-ax[0].set_xlabel("Epoch")
-ax[0].set_ylim([0, max(GatedModelTrainer.losses)])
+    ax[0].plot(GatedModelTrainer.losses)
+    ax[0].set_title("GatedModel")
+    ax[0].set_xlabel("Epoch")
+    ax[0].set_ylim([0, max(GatedModelTrainer.losses)])
 
-ax[1].plot(SelfAttentionTrainer.losses)
-ax[1].set_title("SelfAttention")
-ax[1].set_xlabel("Epoch")
-ax[1].set_ylim([0, max(SelfAttentionTrainer.losses)])
+    ax[1].plot(SelfAttentionTrainer.losses)
+    ax[1].set_title("SelfAttention")
+    ax[1].set_xlabel("Epoch")
+    ax[1].set_ylim([0, max(SelfAttentionTrainer.losses)])
 
-ax[2].plot(FeedForwardTrainer.losses)
-ax[2].set_title("FeedForward")
-ax[2].set_xlabel("Epoch")
-ax[2].set_ylim([0, max(FeedForwardTrainer.losses)])
-plt.pause(0.1)
-
+    ax[2].plot(FeedForwardTrainer.losses)
+    ax[2].set_title("FeedForward")
+    ax[2].set_xlabel("Epoch")
+    ax[2].set_ylim([0, max(FeedForwardTrainer.losses)])
+    plt.pause(0.1)
 
 orange_print("** TEST ACCURACY **")
-green_print(f"GatedModel: {acc_Gated:.3}")
-blue_print(f"AttentionModel: {acc_SelfAttention:.3}")
-teal_print(f"FeedForward: {acc_FeedForward:.3}")
+green_print("GatedModel")
+print_dict(acc_Gated, "green", n_digits=5)
+blue_print("AttentionModel")
+print_dict(acc_SelfAttention, "blue", n_digits=5)
+teal_print("FeedForward")
+print_dict(acc_FeedForward, "teal", n_digits=5)
 
-# %% Visualize predictions in heat map
+# Visualize predictions in heat map
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -321,19 +387,19 @@ X2_tensor = torch.tensor(X2_flat).float().unsqueeze(1)  # Shape: (N, 1)
 # Get predictions from the model
 with torch.no_grad():  # Disable gradient calculation
     GatedModel.eval()  # Set model to evaluation mode
-    predictionsGated = GatedModel(X1_tensor, X2_tensor)
-    predictionsSelfAtt = SelfAttentionModel(X1_tensor, X2_tensor)
-    predictionsFeedForward = FeedForwardModel(X1_tensor, X2_tensor)
+    scoresGated = GatedModelTrainer.model(X1_tensor, X2_tensor)
+    scoresSelfAtt = SelfAttentionTrainer.model(X1_tensor, X2_tensor)
+    scoresFeedForward = FeedForwardTrainer.model(X1_tensor, X2_tensor)
 
-# Reshape predictions to match the grid shape
-predictionsGated = predictionsGated.numpy().reshape(X1_grid.shape)
-predictionsSelfAtt = predictionsSelfAtt.numpy().reshape(X1_grid.shape)
-predictionsFeedForward = predictionsFeedForward.numpy().reshape(X1_grid.shape)
+# Reshape scores to match the grid shape
+scoresGated = scoresGated.numpy().reshape(X1_grid.shape)
+scoresSelfAtt = scoresSelfAtt.numpy().reshape(X1_grid.shape)
+scoresFeedForward = scoresFeedForward.numpy().reshape(X1_grid.shape)
 
 # Gated Attention
 fig, ax = plt.subplots(1, 3, figsize=(20, 5))
 cax = ax[0].imshow(
-    predictionsGated, extent=(-1, 3, -1, 3), origin="lower", cmap="viridis", alpha=0.8
+    scoresGated, extent=(-1, 3, -1, 3), origin="lower", cmap="viridis", alpha=0.8
 )
 ax[0].set_title("Gated Model")
 ax[0].set_xlabel("X1")
@@ -346,7 +412,7 @@ ax[0].legend()
 
 # Self Attention Plot
 cax = ax[1].imshow(
-    predictionsSelfAtt, extent=(-1, 3, -1, 3), origin="lower", cmap="viridis", alpha=0.8
+    scoresSelfAtt, extent=(-1, 3, -1, 3), origin="lower", cmap="viridis", alpha=0.8
 )
 ax[1].set_title("Self Attention")
 ax[1].set_xlabel("X1")
@@ -357,7 +423,7 @@ ax[1].plot(x1[C == 0], x2[C == 0], "b.", label="Class 0 (C=0)")
 ax[1].plot(x1[C == 1], x2[C == 1], "r.", label="Class 1 (C=1)")
 
 cax = ax[2].imshow(
-    predictionsFeedForward,
+    scoresFeedForward,
     extent=(-1, 3, -1, 3),
     origin="lower",
     cmap="viridis",
@@ -377,46 +443,49 @@ fig.colorbar(
 
 
 # %% Compare Gated and FeedForward over multiple training sessions
-n_exp = 50
-accuracies = {"benchModel": np.zeros(n_exp), "gatedModel": np.zeros(n_exp)}
-n_samples = 200
+run_comparison = False
 
-for i in range(n_exp):
-    x1, x2, C = simulate_data(n_samples=150)
-    # Convert data to tensor format
-    X1 = torch.tensor(x1).unsqueeze(1).float()
-    X2 = torch.tensor(x2).unsqueeze(1).float()
-    labels = torch.tensor(C).unsqueeze(1).float()
+if run_comparison:
+    n_exp = 50
+    accuracies = {"benchModel": np.zeros(n_exp), "gatedModel": np.zeros(n_exp)}
+    n_samples = 200
+    for i in range(n_exp):
+        x1, x2, C = simulate_data(n_samples=150)
+        # Convert data to tensor format
+        X1 = torch.tensor(x1).unsqueeze(1).float()
+        X2 = torch.tensor(x2).unsqueeze(1).float()
+        labels = torch.tensor(C).unsqueeze(1).float()
 
-    X1_train, X1_test, X2_train, X2_test, labels_train, labels_test = train_test_split(
-        X1, X2, labels, test_size=50
-    )
+        X1_train, X1_test, X2_train, X2_test, labels_train, labels_test = (
+            train_test_split(X1, X2, labels, test_size=50)
+        )
 
-    FeedForwardTrainer = ModelTrainer(FeedForwardModel)
-    GatedModelTrainer = ModelTrainer(GatedModel)
+        FeedForwardTrainer = ModelTrainer(FeedForwardModel)
+        GatedModelTrainer = ModelTrainer(GatedModel)
 
-    FeedForwardTrainer.train_model(X1_train, X2_train, labels_train)
-    GatedModelTrainer.train_model(X1_train, X2_train, labels_train)
+        FeedForwardTrainer.train_model(X1_train, X2_train, labels_train)
+        GatedModelTrainer.train_model(X1_train, X2_train, labels_train)
 
-    acc_bench = calc_acc(X1_test, X2_test, labels_test, FeedForwardTrainer.model)
-    acc_gated = calc_acc(X1_test, X2_test, labels_test, GatedModelTrainer.model)
+        # pos_pred =
+        acc_bench = calc_acc(X1_test, X2_test, labels_test, FeedForwardTrainer.model)
+        acc_gated = calc_acc(X1_test, X2_test, labels_test, GatedModelTrainer.model)
 
-    accuracies["benchModel"][i] = acc_bench
-    accuracies["gatedModel"][i] = acc_gated
+        accuracies["benchModel"][i] = acc_bench
+        accuracies["gatedModel"][i] = acc_gated
 
-    blue_print(f"Acc. Benchmark: {acc_bench:.3}")
-    green_print(f"Acc. Gated: {acc_gated:.3}")
+        blue_print(f"Acc. Benchmark: {acc_bench:.3}")
+        green_print(f"Acc. Gated: {acc_gated:.3}")
 
-pink_print("Experiment Finnished")
+    pink_print("Experiment Finnished")
 
 # %% Analyze outcome of experiment
+if run_comparison:
+    acc_bench = accuracies["benchModel"].mean()
+    acc_gated = accuracies["gatedModel"].mean()
+    acc_diffs = ((accuracies["gatedModel"] - accuracies["benchModel"]) >= 0).mean()
 
-acc_bench = accuracies["benchModel"].mean()
-acc_gated = accuracies["gatedModel"].mean()
-acc_diffs = ((accuracies["gatedModel"] - accuracies["benchModel"]) >= 0).mean()
-
-magenta_print(f"Accuracy better than benchmark in {100 * acc_diffs}% of trials")
-blue_print(f"Accuracy of benchmark {100 * acc_bench}% of trials")
-green_print(f"Accuracy of gated {100 * acc_gated}% of trials")
+    magenta_print(f"Accuracy better than benchmark in {100 * acc_diffs}% of trials")
+    blue_print(f"Accuracy of benchmark {100 * acc_bench}% of trials")
+    green_print(f"Accuracy of gated {100 * acc_gated}% of trials")
 
 # Beats benchmark about 85% of the time for 75 training samples
